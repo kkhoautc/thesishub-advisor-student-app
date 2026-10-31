@@ -662,7 +662,10 @@ class AcademicGradesImportAPIView(APIView):
                 std = item["student"]
                 std.cpa = item["cpa"]
                 std.credits_accumulated = item["credits"]
-                is_eligible = (item["debt_credits"] < 10)
+                # Giai đoạn 4 yeucau.md: Hậu kiểm điều kiện học vụ trước khi bảo vệ
+                # - Nợ > 0 tín chỉ: Không đủ điều kiện ──► Chuyển trạng thái BẢO LƯU đồ án
+                # - Không nợ tín chỉ (= 0 TC): Đủ điều kiện ──► Đẩy vào danh sách xếp Hội đồng bảo vệ
+                is_eligible = (item["debt_credits"] == 0)
                 std.is_eligible_for_thesis = is_eligible
                 std.save(update_fields=["cpa", "credits_accumulated", "is_eligible_for_thesis"])
 
@@ -670,18 +673,24 @@ class AcademicGradesImportAPIView(APIView):
                 if proj:
                     proj.debt_credits = item["debt_credits"]
                     proj.initial_eligibility = "ELIGIBLE" if is_eligible else "INELIGIBLE"
+                    proj.final_academic_eligibility = "ELIGIBLE" if is_eligible else "INELIGIBLE"
                     proj.academic_clearance_status = "CLEARED" if is_eligible else "NOT_CLEARED"
                     if is_eligible:
-                        proj.ineligibility_reason = f"Đủ điều kiện làm đồ án (Nợ {item['debt_credits']} TC < 10 TC)"
+                        proj.status = "DEFENSE_READY"
+                        proj.is_eligible_for_defense = True
+                        proj.deferral_status = "NONE"
+                        proj.ineligibility_reason = "Tích lũy đầy đủ tín chỉ (Nợ 0 TC) - Đủ điều kiện chuyển sang GĐ 5 xếp Hội đồng bảo vệ"
                     else:
                         proj.status = "DEFERRED"
+                        proj.is_eligible_for_defense = False
                         proj.deferral_status = "APPROVED"
-                        proj.deferral_reason = f"Bảo lưu do nợ {item['debt_credits']} tín chỉ (>= 10 TC theo quy định)"
+                        proj.deferral_reason = f"Bảo lưu do nợ {item['debt_credits']} tín chỉ (> 0 TC theo quy chế yeucau.md)"
                         proj.deferral_decided_at = timezone.now()
-                        proj.ineligibility_reason = f"Nợ {item['debt_credits']} tín chỉ (>= 10 TC theo quy định) - Tự động loại khỏi đợt và bảo lưu"
+                        proj.ineligibility_reason = proj.deferral_reason
                     proj.save(update_fields=[
                         "debt_credits", "initial_eligibility", "academic_clearance_status",
-                        "status", "ineligibility_reason", "deferral_status",
+                        "final_academic_eligibility", "status", "is_eligible_for_defense",
+                        "ineligibility_reason", "deferral_status",
                         "deferral_reason", "deferral_decided_at"
                     ])
 
@@ -864,7 +873,11 @@ class StudentGraduationProjectAPIView(APIView):
             "reviewer__user",
             "council",
             "topic_category",
-            "final_grade_summary"
+            "final_grade_summary",
+            "schedule_slot",
+        ).prefetch_related(
+            "council__members__user",
+            "council__members__supervisor",
         ).first()
 
         if not project:
@@ -886,7 +899,7 @@ class StudentGraduationProjectAPIView(APIView):
 
 class StudentOutlineSubmissionAPIView(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @retry_on_db_lock(max_retries=5, initial_delay=0.05, backoff_factor=1.5)
     def post(self, request):
@@ -899,9 +912,15 @@ class StudentOutlineSubmissionAPIView(APIView):
         if not project:
             return Response({"detail": "Chưa được phân công đề tài."}, status=status.HTTP_400_BAD_REQUEST)
 
-        topic_title_vi = request.data.get("topic_title_vi", "").strip()
-        topic_title_en = request.data.get("topic_title_en", "").strip()
+        topic_title_vi = request.data.get("topic_title_vi", "").strip() or project.topic_title_vi
+        topic_title_en = request.data.get("topic_title_en", "").strip() or project.topic_title_en
         outline_file = request.FILES.get("outline_file")
+
+        objectives = request.data.get("objectives", "").strip()
+        scope = request.data.get("scope", "").strip()
+        work_plan = request.data.get("work_plan", "").strip()
+        deliverables = request.data.get("deliverables", "").strip()
+        action = request.data.get("action", "submit").lower()
 
         if not topic_title_vi:
             return Response({"topic_title_vi": ["Vui lòng nhập tên đề tài tiếng Việt."]}, status=status.HTTP_400_BAD_REQUEST)
@@ -928,17 +947,34 @@ class StudentOutlineSubmissionAPIView(APIView):
             project.topic_title_vi = topic_title_vi
             if topic_title_en:
                 project.topic_title_en = topic_title_en
-            project.status = "OUTLINE_PENDING"
-            project.save()
 
             review, _ = OutlineReview.objects.select_for_update().get_or_create(project=project)
             if outline_file:
                 review.outline_file = outline_file
-            review.verdict = "PENDING"
-            review.save()
+
+            template_payload = {
+                "objectives": objectives,
+                "scope": scope,
+                "work_plan": work_plan,
+                "deliverables": deliverables,
+            }
+            if request.data.get("topic_objective"):
+                template_payload["topic_objective"] = request.data.get("topic_objective").strip()
+
+            save_outline_template_data(project, template_payload)
+
+            if action == "draft":
+                msg = "Đã lưu bản thảo nội dung Đề cương theo Template thành công!"
+            else:
+                project.status = "OUTLINE_PENDING"
+                review.verdict = "PENDING"
+                review.save()
+                msg = "Nộp đề cương theo Template thành công, đang chờ Giảng viên hướng dẫn thẩm định và phê duyệt trên hệ thống!"
+
+            project.save()
 
         return Response({
-            "message": "Nộp đề cương thành công, đang chờ Giảng viên xét duyệt!",
+            "message": msg,
             "project": GraduationProjectDetailSerializer(project).data
         }, status=status.HTTP_200_OK)
 
@@ -1250,7 +1286,7 @@ class SupervisorOutlineReviewAPIView(APIView):
         with transaction.atomic():
             review.reviewer = supervisor
             review.verdict = verdict
-            review.comments = comments
+            save_outline_template_data(project, {}, supervisor_notes=comments)
             review.reviewed_at = timezone.now()
             review.save()
 
@@ -1326,17 +1362,24 @@ class SupervisorDefenseEvaluationAPIView(APIView):
             project.supervisor_feedback = supervisor_feedback
             project.supervisor_score_is_draft = is_draft
             if not is_draft:
-                project.is_eligible_for_defense = is_eligible
                 if is_eligible:
-                    project.status = "DEFENSE_READY"
+                    # GĐ 3 yeucau.md: Đạt yêu cầu -> GVHD xác nhận hoàn thành project, cho Điểm quá trình.
+                    # Chuyển sang GĐ 4 kiểm tra điều kiện học vụ (Hết nhiệm vụ GVHD).
+                    project.supervisor_defense_confirmed = True
+                    project.is_eligible_for_defense = False
+                    project.final_academic_eligibility = "PENDING"
+                    project.status = "IN_PROGRESS"
                 else:
+                    # Không đạt: GVHD đánh giá không đạt; sinh viên nhận trạng thái Bảo lưu đồ án.
+                    project.supervisor_defense_confirmed = False
+                    project.is_eligible_for_defense = False
                     project.status = "DEFERRED"
                     project.deferral_status = "APPROVED"
-                    project.deferral_reason = f"Bảo lưu do GVHD đánh giá không đủ điều kiện bảo vệ: {supervisor_feedback or 'Chưa hoàn thành nhiệm vụ theo yêu cầu'}"
+                    project.deferral_reason = f"Bảo lưu do GVHD đánh giá không đạt yêu cầu thực hiện đồ án: {supervisor_feedback or 'Chưa hoàn thành nhiệm vụ theo yêu cầu'}"
                     project.deferral_decided_at = timezone.now()
                 project.save()
 
-                # Update Final Grade
+                # Update Final Grade with supervisor score
                 summary, _ = FinalGradeSummary.objects.get_or_create(project=project)
                 summary.supervisor_score = score
                 policy = EvaluationPolicy.objects.filter(batch=project.batch).first()
@@ -1344,7 +1387,12 @@ class SupervisorDefenseEvaluationAPIView(APIView):
             else:
                 project.save()
 
-        msg = "Đã lưu nháp phiếu đánh giá của Giảng viên hướng dẫn! Điểm chưa công bố cho sinh viên." if is_draft else "Đã lưu và công bố phiếu đánh giá của Giảng viên hướng dẫn!"
+        if is_draft:
+            msg = "Đã lưu nháp phiếu đánh giá của Giảng viên hướng dẫn! Điểm chưa công bố cho sinh viên."
+        elif is_eligible:
+            msg = "Đã lưu và công bố Điểm quá trình của GVHD! Sinh viên hoàn thành GĐ 3 và chuyển sang bước Giáo vụ hậu kiểm điều kiện học vụ (GĐ 4). Nhiệm vụ của GVHD kết thúc tại đây."
+        else:
+            msg = "GVHD đánh giá không đạt yêu cầu thực hiện; sinh viên nhận trạng thái Bảo lưu đồ án."
         return Response({
             "message": msg,
             "project": GraduationProjectDetailSerializer(project).data
@@ -3028,11 +3076,62 @@ class FinalizeAllocationAPIView(APIView):
 
 
 # ==============================================================================
-# PHASE 3: TOPIC FORMULATION (DRAFT -> CONFIRM -> APPROVE -> PDF)
+# PHASE 2 & 3: TOPIC FORMULATION & TEMPLATE OUTLINE (GD 2 yeucau.md)
 # ==============================================================================
 
+import json
+
+def get_outline_template_data(project):
+    """Lay du lieu mau de cuong (Template) cua sinh vien: muc tieu, pham vi, ke hoach, san pham ban giao"""
+    review = getattr(project, "outline_review", None)
+    if not review:
+        review = OutlineReview.objects.filter(project=project).first()
+    if not review or not review.comments:
+        return {
+            "topic_objective": "",
+            "objectives": "",
+            "scope": "",
+            "work_plan": "",
+            "deliverables": "",
+            "supervisor_notes": ""
+        }
+    try:
+        data = json.loads(review.comments)
+        if isinstance(data, dict):
+            return {
+                "topic_objective": data.get("topic_objective", ""),
+                "objectives": data.get("objectives", ""),
+                "scope": data.get("scope", ""),
+                "work_plan": data.get("work_plan", ""),
+                "deliverables": data.get("deliverables", ""),
+                "supervisor_notes": data.get("supervisor_notes", ""),
+            }
+    except Exception:
+        pass
+    return {
+        "topic_objective": "",
+        "objectives": "",
+        "scope": "",
+        "work_plan": "",
+        "deliverables": "",
+        "supervisor_notes": review.comments or ""
+    }
+
+def save_outline_template_data(project, new_data, supervisor_notes=None):
+    """Luu du lieu mau de cuong (Template) vao truong comments cua OutlineReview (Zero-new-table)"""
+    review, _ = OutlineReview.objects.get_or_create(project=project)
+    current = get_outline_template_data(project)
+    if new_data:
+        current.update({k: v for k, v in new_data.items() if v is not None})
+    if supervisor_notes is not None:
+        current["supervisor_notes"] = supervisor_notes
+    review.comments = json.dumps(current, ensure_ascii=False)
+    review.save(update_fields=["comments"])
+    return current
+
+
 class TopicDraftAPIView(APIView):
-    """GV và SV cùng xác định đề tài (trạng thái Draft)"""
+    """GV va SV cung xac dinh de tai (trang thai Draft)"""
     permission_classes = [IsAuthenticated]
 
     def patch(self, request):
@@ -3046,6 +3145,7 @@ class TopicDraftAPIView(APIView):
         project_id = request.data.get("project_id")
         topic_title_vi = request.data.get("topic_title_vi", "").strip()
         topic_title_en = request.data.get("topic_title_en", "").strip()
+        topic_objective = request.data.get("topic_objective", "").strip() or request.data.get("expected_results", "").strip()
 
         if not topic_title_vi:
             return Response({"detail": "Tên đề tài tiếng Việt là bắt buộc."}, status=status.HTTP_400_BAD_REQUEST)
@@ -3062,7 +3162,10 @@ class TopicDraftAPIView(APIView):
         project.topic_title_vi = topic_title_vi
         if topic_title_en:
             project.topic_title_en = topic_title_en
-        
+
+        if topic_objective:
+            save_outline_template_data(project, {"topic_objective": topic_objective})
+
         is_resubmit = request.data.get("is_resubmit") or request.data.get("action") == "resubmit"
         if is_resubmit or project.topic_review_status == "REVISION_REQUIRED" or project.status == "TOPIC_REVISION":
             project.status = "PENDING_REVIEW"
@@ -3072,7 +3175,7 @@ class TopicDraftAPIView(APIView):
         else:
             project.status = "TOPIC_DRAFT"
             project.topic_review_status = "DRAFT"
-            msg = "Đã cập nhật tên đề tài (Trạng thái Draft)."
+            msg = "Đã cập nhật tên và mục tiêu đề tài (Trạng thái Draft)."
 
         project.save(update_fields=["topic_title_vi", "topic_title_en", "status", "topic_review_status", "topic_revision_notes"])
 
@@ -3083,8 +3186,9 @@ class TopicDraftAPIView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+
 class SupervisorConfirmTopicAPIView(APIView):
-    """GV xác nhận đề tài (sau khi thống nhất với SV) để trình Khoa/Ban duyệt"""
+    """GVHD thẩm định & duyệt đề tài trực tiếp theo GĐ 2 (yeucau.md)"""
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -3094,28 +3198,39 @@ class SupervisorConfirmTopicAPIView(APIView):
             return Response({"detail": "Chỉ dành cho Giảng viên hướng dẫn."}, status=status.HTTP_403_FORBIDDEN)
 
         project_id = request.data.get("project_id")
+        decision = (request.data.get("decision") or request.data.get("action") or "APPROVE").upper()
+        notes = request.data.get("notes", "").strip() or request.data.get("revision_notes", "").strip()
         project = get_object_or_404(GraduationProject, id=project_id, supervisor=supervisor)
 
         topic_title_vi = request.data.get("topic_title_vi", "").strip()
         topic_title_en = request.data.get("topic_title_en", "").strip()
-        update_fields = ["status"]
 
         if topic_title_vi:
             project.topic_title_vi = topic_title_vi
-            update_fields.append("topic_title_vi")
         if topic_title_en:
             project.topic_title_en = topic_title_en
-            update_fields.append("topic_title_en")
 
-        project.status = "TOPIC_CONFIRMED"
-        project.save(update_fields=update_fields)
+        if decision in ["APPROVE", "APPROVED"]:
+            project.status = "TOPIC_CONFIRMED"
+            project.topic_review_status = "GV_CONFIRMED"
+            project.topic_revision_notes = ""
+            msg = "GVHD đã thẩm định và phê duyệt đề tài thành công! Đề tài đang chờ Khoa phê duyệt chính thức."
+            notif_msg = f"GVHD {supervisor.user.get_full_name()} đã phê duyệt đề tài: '{project.topic_title_vi}'."
+        else:
+            project.status = "TOPIC_REVISION"
+            project.topic_review_status = "REVISION_REQUIRED"
+            project.topic_revision_notes = notes or "Yêu cầu sinh viên sửa đổi hoặc chọn đề tài khác."
+            msg = "Đã gửi yêu cầu sinh viên chỉnh sửa hoặc chọn đề tài khác."
+            notif_msg = f"GVHD {supervisor.user.get_full_name()} yêu cầu chỉnh sửa đề tài: {project.topic_revision_notes}"
+
+        project.save(update_fields=["topic_title_vi", "topic_title_en", "status", "topic_review_status", "topic_revision_notes"])
 
         try:
             NotificationService.create_notification(
                 user=project.student.user,
                 notification_type="general",
-                title="[Đề tài ĐATN] GVHD đã xác nhận đề tài",
-                message=f"GVHD {supervisor.user.get_full_name()} đã xác nhận đề tài: '{project.topic_title_vi}'. Đang trình Khoa/Bộ môn phê duyệt.",
+                title="[Đề tài ĐATN] Kết quả thẩm định đề tài từ GVHD",
+                message=notif_msg,
                 action_url="/student/dashboard",
                 send_email=True,
             )
@@ -3123,7 +3238,7 @@ class SupervisorConfirmTopicAPIView(APIView):
             logger.warning("Could not send notification: %s", e)
 
         return Response({
-            "message": "GV đã xác nhận đề tài thành công! Đang trình Khoa/Ban duyệt.",
+            "message": msg,
             "project": GraduationProjectDetailSerializer(project).data
         }, status=status.HTTP_200_OK)
 
@@ -3398,33 +3513,46 @@ class ExportOutlinePdfAPIView(APIView):
         p.drawString(50, y, clean_txt(f"5. Đợt thực hiện: {batch_info}"))
         y -= 28
 
-        # 4. Mục tiêu và nội dung nghiên cứu chính
-        p.drawString(50, y, clean_txt("6. Mục tiêu nghiên cứu:"))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Khảo sát hiện trạng, phân tích nghiệp vụ và thu thập yêu cầu hệ thống."))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Nghiên cứu các giải pháp công nghệ, thuật toán và mô hình kiến trúc phù hợp."))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Thiết kế kiến trúc giải pháp, cơ sở dữ liệu và các giao diện người dùng."))
-        y -= 24
+                # 4. Muc tieu va noi dung nghien cuu tu Template cua sinh vien
+        tpl_data = get_outline_template_data(project)
+        obj_text = tpl_data.get("objectives") or tpl_data.get("topic_objective") or """- Khảo sát hiện trạng, phân tích nghiệp vụ và thu thập yêu cầu hệ thống.\n- Nghiên cứu các giải pháp công nghệ, thuật toán và mô hình kiến trúc phù hợp.\n- Thiết kế kiến trúc giải pháp, cơ sở dữ liệu và các giao diện người dùng."""
+        scope_text = tpl_data.get("scope") or """- Phạm vi nghiên cứu trong khuôn khổ đồ án tốt nghiệp ngành CNTT.\n- Giới hạn hệ thống: Triển khai thử nghiệm cho quy mô khoa và người dùng thực tế."""
+        plan_text = tpl_data.get("work_plan") or """- Giai đoạn 1 (Tuần 1-4): Hoàn thành đề cương, khảo sát thực tế và phân tích yêu cầu.\n- Giai đoạn 2 (Tuần 5-10): Thiết kế hệ thống, xây dựng CSDL và lập trình các module.\n- Giai đoạn 3 (Tuần 11-14): Kiểm thử phần mềm, đánh giá hiệu năng và viết thuyết minh.\n- Giai đoạn 4 (Tuần 15): Báo cáo nghiệm thu trước Hội đồng chấm ĐATN."""
+        deliv_text = tpl_data.get("deliverables") or """- Quyển báo cáo thuyết minh Đồ án tốt nghiệp hoàn chỉnh và slide trình chiếu.\n- Mã nguồn chương trình (Source code) và phần mềm demo triển khai thực tế."""
+        def render_section(title, text, y_pos):
+            p.setFont(font_name, 10)
+            p.drawString(50, y_pos, clean_txt(title))
+            y_pos -= 15
+            p.setFont(font_name, 9)
+            lines = text.splitlines()
+            for line in lines:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                if not line_str.startswith("-") and not line_str.startswith("*"):
+                    line_str = "- " + line_str
+                # Wrap long line
+                words = line_str.split(" ")
+                cur_line = []
+                for w in words:
+                    test_str = " ".join(cur_line + [w])
+                    if p.stringWidth(clean_txt(test_str), font_name, 9) < 480:
+                        cur_line.append(w)
+                    else:
+                        p.drawString(65, y_pos, clean_txt(" ".join(cur_line)))
+                        y_pos -= 14
+                        cur_line = [w]
+                if cur_line:
+                    p.drawString(65, y_pos, clean_txt(" ".join(cur_line)))
+                    y_pos -= 14
+            y_pos -= 8
+            return y_pos
 
-        p.drawString(50, y, clean_txt("7. Kế hoạch và nội dung triển khai:"))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Giai đoạn 1 (Tuần 1-4): Hoàn thành đề cương, khảo sát thực tế và phân tích yêu cầu."))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Giai đoạn 2 (Tuần 5-10): Thiết kế hệ thống, xây dựng CSDL và lập trình các module."))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Giai đoạn 3 (Tuần 11-14): Kiểm thử phần mềm, đánh giá hiệu năng và viết thuyết minh."))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Giai đoạn 4 (Tuần 15): Báo cáo nghiệm thu trước Hội đồng chấm Đồ án tốt nghiệp."))
-        y -= 24
-
-        p.drawString(50, y, clean_txt("8. Dự kiến sản phẩm bàn giao:"))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Quyển báo cáo thuyết minh Đồ án tốt nghiệp hoàn chỉnh và slide trình chiếu."))
-        y -= 16
-        p.drawString(65, y, clean_txt("- Mã nguồn chương trình (Source code) và phần mềm demo triển khai thực tế."))
-        y -= 45
+        y = render_section("6. Mục tiêu nghiên cứu:", obj_text, y)
+        y = render_section("7. Phạm vi nghiên cứu & Giới hạn đề tài:", scope_text, y)
+        y = render_section("8. Kế hoạch và nội dung triển khai:", plan_text, y)
+        y = render_section("9. Dự kiến sản phẩm bàn giao:", deliv_text, y)
+        y -= 20
 
         # 5. Khối chữ ký xác nhận chuẩn
         p.drawString(80, y, clean_txt("GIẢNG VIÊN HƯỚNG DẪN"))

@@ -12,6 +12,8 @@
 !example.env
 !**/example.env
 
+*.code-workspace
+**/*.code-workspace
 
 # ==========================================
 # Python & Django (Backend)

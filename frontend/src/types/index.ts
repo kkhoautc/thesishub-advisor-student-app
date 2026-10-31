@@ -76,6 +76,31 @@ export interface Student {
     final_academic_eligibility?: string;
     supervisor_name?: string;
     supervisor_email?: string;
+    reviewer_name?: string;
+    council_name?: string;
+    defense_room?: string;
+    session_date?: string | null;
+    session_time?: string;
+    schedule_slot?: {
+      id: number;
+      order_number: number;
+      slot_date: string | null;
+      start_time: string | null;
+      end_time: string | null;
+      room: string;
+      session_time?: string;
+    } | null;
+    council_members?: Array<{
+      id: number;
+      role: string;
+      role_display: string;
+      name: string;
+      display_name?: string;
+      academic_title?: string;
+      email?: string;
+      department?: string;
+      external_institution?: string;
+    }>;
     is_eligible_for_defense?: boolean;
   };
 }

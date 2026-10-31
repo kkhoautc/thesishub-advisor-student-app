@@ -16,122 +16,120 @@ export const GRADUATION_STAGES: StageInfo[] = [
   {
     number: 1,
     key: 'project',
-    label: 'GĐ 1: Đề Tài & GVHD',
-    sidebarLabel: 'GĐ 1: Đề Tài & Phân Công',
-    shortLabel: '1. Đề tài & GVHD',
+    label: 'GĐ 1: Khởi Tạo Đợt & Phân Công GVHD',
+    sidebarLabel: 'GĐ 1: Đợt & Phân Công GVHD',
+    shortLabel: '1. Đợt & Phân công',
     icon: '🎓',
-    description: 'Phân công GVHD và hồ sơ đề tài ban đầu',
+    description: 'Admin tạo đợt, import SV, chọn hướng NC, đăng ký 3 NV và chốt phân công',
   },
   {
     number: 2,
-    key: 'survey',
-    label: 'GĐ 2: Khảo Sát Nguyện Vọng',
-    sidebarLabel: 'GĐ 2: Khảo Sát Nguyện Vọng',
-    shortLabel: '2. Khảo sát nguyện vọng',
-    icon: '📝',
-    description: 'Phiếu khảo sát nguyện vọng & thực tập doanh nghiệp',
+    key: 'outline',
+    label: 'GĐ 2: Chọn Đề Tài & Đề Cương Theo Mẫu',
+    sidebarLabel: 'GĐ 2: Đề Tài & Đề Cương Mẫu',
+    shortLabel: '2. Đề tài & Đề cương',
+    icon: '📄',
+    description: 'SV đăng ký đề tài, GVHD thẩm định duyệt, điền Template sinh PDF đề cương',
   },
   {
     number: 3,
-    key: 'outline',
-    label: 'GĐ 3: Đề Cương & Ký Số',
-    sidebarLabel: 'GĐ 3: Duyệt Đề Cương & Ký Số',
-    shortLabel: '3. Đề cương ĐATN',
-    icon: '📄',
-    description: 'Bản thảo đề tài, xuất PDF và nộp đề cương có chữ ký',
+    key: 'supervision',
+    label: 'GĐ 3: Thực Hiện Đồ Án & Điểm Quá Trình',
+    sidebarLabel: 'GĐ 3: Thực Hiện & Điểm Quá Trình',
+    shortLabel: '3. Thực hiện đồ án',
+    icon: '📋',
+    description: 'GVHD giao task & deadline, SV nộp bài, GVHD đánh giá và chấm Điểm quá trình',
   },
   {
     number: 4,
-    key: 'weekly',
-    label: 'GĐ 4: Báo Cáo Tuần',
-    sidebarLabel: 'GĐ 4: Báo Cáo Tuần',
-    shortLabel: '4. Báo cáo tuần',
-    icon: '📅',
-    description: 'Báo cáo tiến độ tuần thường xuyên tuần 1 - 15',
+    key: 'survey',
+    label: 'GĐ 4: Hậu Kiểm Điều Kiện Học Vụ',
+    sidebarLabel: 'GĐ 4: Hậu Kiểm Học Vụ (Nợ 0 TC)',
+    shortLabel: '4. Hậu kiểm học vụ',
+    icon: '⚖️',
+    description: 'Giáo vụ kiểm tra nợ tín chỉ: Nợ > 0 TC bảo lưu, Nợ = 0 TC đủ điều kiện bảo vệ',
   },
   {
     number: 5,
-    key: 'supervision',
-    label: 'GĐ 5: Task Board & Nhật Ký',
-    sidebarLabel: 'GĐ 5: Task Board & Nhật Ký',
-    shortLabel: '5. Task board & Nhật ký',
-    icon: '📋',
-    description: 'Quản lý nhiệm vụ, nộp sản phẩm & biên bản họp hướng dẫn',
+    key: 'weekly',
+    label: 'GĐ 5: Hội Đồng & Sắp Xếp Lịch Bảo Vệ',
+    sidebarLabel: 'GĐ 5: Hội Đồng & Lịch Bảo Vệ',
+    shortLabel: '5. Hội đồng & Lịch BV',
+    icon: '🏛️',
+    description: 'Thành lập hội đồng 5 thành viên và hệ thống tự động sắp xếp lịch bảo vệ chi tiết',
   },
   {
     number: 6,
     key: 'grade',
-    label: 'GĐ 6: Bảng Điểm & Bảo Vệ',
-    sidebarLabel: 'GĐ 6: Đánh Giá & Bảo Vệ',
-    shortLabel: '6. Bảng điểm & Bảo vệ',
+    label: 'GĐ 6: Chấm Điểm Bảo Vệ, Biên Bản & Bế Mạc',
+    sidebarLabel: 'GĐ 6: Chấm BV, Biên Bản & Bế Mạc',
+    shortLabel: '6. Chấm điểm & Bế mạc',
     icon: '🏆',
-    description: 'Đánh giá sơ khảo GVHD, điểm phản biện & Hội đồng bảo vệ',
+    description: '5 thành viên HĐ chấm độc lập, xuất PDF biên bản có chữ ký và tổng kết đợt',
   },
 ];
 
 /**
- * Tính toán giai đoạn hiện tại (1 -> 6) của Sinh viên / Đồ án
- * Nguyên tắc: Khi Giảng viên hướng dẫn duyệt thì sinh viên mới sang giai đoạn mới
+ * Tính toán giai đoạn hiện tại (1 -> 6) của Sinh viên / Đồ án theo chuẩn yeucau.md
  */
 export function getProjectStageNumber(project: any): number {
-  if (!project) return 2; // Chưa được phân công đồ án -> Bước khảo sát nguyện vọng
+  if (!project) return 1;
 
-  const tasks = Array.isArray(project.tasks) ? project.tasks : [];
-  const weeklyReports = Array.isArray(project.weekly_reports) ? project.weekly_reports : [];
   const finalGrade = project.final_grade || project.final_grade_summary || null;
-  const supervisorScore =
-    project.supervisor_score !== null && project.supervisor_score !== undefined && project.supervisor_score !== ''
-      ? Number(project.supervisor_score)
-      : null;
-  const reviewerScore =
-    project.reviewer_score !== null && project.reviewer_score !== undefined && project.reviewer_score !== ''
-      ? Number(project.reviewer_score)
-      : null;
 
-  // Giai đoạn 6: GVHD đã đánh giá bảo vệ hoặc đủ điều kiện hoặc DEFENSE_READY / PASSED / FAILED / DEFENDING
+  // Giai đoạn 6: Đang bảo vệ, đã chấm điểm HĐ hoặc đã hoàn tất/kết thúc
   if (
-    project.is_eligible_for_defense ||
-    project.supervisor_defense_confirmed ||
-    supervisorScore !== null ||
-    reviewerScore !== null ||
-    finalGrade?.is_finalized ||
-    (finalGrade?.final_score_10 !== null && finalGrade?.final_score_10 !== undefined) ||
-    project.status === 'DEFENSE_READY' ||
     project.status === 'PASSED' ||
     project.status === 'FAILED' ||
-    project.status === 'DEFENDING'
+    project.status === 'DEFENDING' ||
+    project.status === 'DEFENDED' ||
+    finalGrade?.is_finalized ||
+    (finalGrade?.council_avg_score !== null && finalGrade?.council_avg_score !== undefined && finalGrade?.council_avg_score > 0)
   ) {
     return 6;
   }
 
-  // Giai đoạn 5 & 4: Khi Đề cương đã được GVHD DUYỆT (OUTLINE_APPROVED hoặc outline_review.verdict === 'APPROVED')
-  const isOutlineApproved =
-    project.status === 'OUTLINE_APPROVED' ||
-    project.outline_review?.verdict === 'APPROVED';
+  // Giai đoạn 5: Đã thành lập Hội đồng hoặc xếp lịch bảo vệ chi tiết
+  if (
+    project.schedule_slot ||
+    Boolean(project.council_name) ||
+    Boolean(project.council) ||
+    project.status === 'DEFENSE_READY'
+  ) {
+    return 5;
+  }
 
-  if (isOutlineApproved) {
-    const hasTasks = tasks.length > 0;
-    const hasReviewedWeekly = weeklyReports.some((r: any) => r.supervisor_rating || r.supervisor_feedback);
-
-    // Nếu đã giao tasks hoặc đã có báo cáo tuần được GVHD đánh giá nhận xét -> Sang Giai đoạn 5: Task board & Nhật ký
-    if (hasTasks || hasReviewedWeekly || weeklyReports.length >= 5) {
-      return 5;
-    }
-    // Ngay sau khi GVHD duyệt đề cương -> Chuyển sang Giai đoạn 4: Báo cáo tuần
+  // Giai đoạn 4: GVHD đã xác nhận hoàn thành & chấm điểm quá trình (GĐ 3 xong)
+  // Chuyển sang GĐ 4: Chờ Giáo vụ hậu kiểm nợ đọng tín chỉ (Nợ > 0 TC: Bảo lưu, Nợ = 0 TC: Đủ ĐK)
+  if (
+    project.supervisor_defense_confirmed ||
+    (project.supervisor_score !== null && project.supervisor_score !== undefined && project.supervisor_score !== '')
+  ) {
     return 4;
   }
 
-  // Giai đoạn 1: Mới phân công GVHD ban đầu, đề tài chưa xác nhận / DRAFT / PENDING
+  // Giai đoạn 3: Đề cương đã duyệt -> Đang thực hiện đồ án (Tasks & Deadline)
   if (
-    project.status === 'ALLOCATED' &&
-    (!project.topic_review_status || project.topic_review_status === 'DRAFT' || project.topic_review_status === 'PENDING') &&
-    !project.signed_outline_file
+    project.status === 'OUTLINE_APPROVED' ||
+    project.status === 'IN_PROGRESS' ||
+    project.outline_review?.verdict === 'APPROVED'
   ) {
-    return 1;
+    return 3;
   }
 
-  // Giai đoạn 3: Sinh viên làm việc trên đề tài & nộp đề cương, CHỜ GVHD DUYỆT ĐỀ CƯƠNG
-  return 3;
+  // Giai đoạn 2: Đã có GVHD, đang xây dựng đề tài / nộp đề cương theo mẫu
+  if (
+    project.status === 'TOPIC_CONFIRMED' ||
+    project.status === 'TOPIC_APPROVED' ||
+    project.status === 'OUTLINE_PENDING' ||
+    project.status === 'OUTLINE_REVISION' ||
+    project.topic_title_vi
+  ) {
+    return 2;
+  }
+
+  // Giai đoạn 1: Mới phân công GVHD ban đầu
+  return 1;
 }
 
 export function getProjectStageInfo(project: any): StageInfo {

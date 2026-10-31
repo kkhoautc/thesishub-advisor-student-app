@@ -361,9 +361,11 @@ class GraduationProjectDetailSerializer(serializers.ModelSerializer):
     supervisor = SupervisorBriefSerializer(read_only=True)
     reviewer = SupervisorBriefSerializer(read_only=True)
     council_name = serializers.CharField(source="council.council_name", read_only=True, default="")
-    defense_room = serializers.CharField(source="council.defense_room", read_only=True, default="")
-    session_date = serializers.DateField(source="council.session_date", read_only=True, default=None)
+    defense_room = serializers.SerializerMethodField()
+    session_date = serializers.SerializerMethodField()
     session_time = serializers.CharField(source="council.get_session_time_display", read_only=True, default="")
+    schedule_slot = serializers.SerializerMethodField()
+    council_members = serializers.SerializerMethodField()
     topic_category_name = serializers.CharField(source="topic_category.name", read_only=True, default="")
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     topic_review_status_display = serializers.CharField(source="get_topic_review_status_display", read_only=True)
@@ -397,6 +399,8 @@ class GraduationProjectDetailSerializer(serializers.ModelSerializer):
             "defense_room",
             "session_date",
             "session_time",
+            "schedule_slot",
+            "council_members",
             "batch",
             "topic_category",
             "topic_category_name",
@@ -423,6 +427,7 @@ class GraduationProjectDetailSerializer(serializers.ModelSerializer):
             "signed_outline_file_url",
             "supervisor_score",
             "supervisor_feedback",
+            "debt_credits",
             "is_eligible_for_defense",
             "supervisor_score_is_draft",
             "reviewer_score",
@@ -463,6 +468,63 @@ class GraduationProjectDetailSerializer(serializers.ModelSerializer):
             "todo": todo,
             "completion_rate": rate
         }
+
+    def get_defense_room(self, obj):
+        slot = getattr(obj, "schedule_slot", None)
+        if slot and slot.room:
+            return slot.room
+        if obj.council and obj.council.defense_room:
+            return obj.council.defense_room
+        return ""
+
+    def get_session_date(self, obj):
+        slot = getattr(obj, "schedule_slot", None)
+        if slot and slot.slot_date:
+            return slot.slot_date.isoformat()
+        if obj.council and obj.council.session_date:
+            return obj.council.session_date.isoformat()
+        return None
+
+    def get_schedule_slot(self, obj):
+        slot = getattr(obj, "schedule_slot", None)
+        if not slot:
+            return None
+        date_val = slot.slot_date or (obj.council.session_date if obj.council else None)
+        room_val = slot.room or (obj.council.defense_room if obj.council else "")
+        return {
+            "id": slot.id,
+            "order_number": slot.order_number,
+            "slot_date": date_val.isoformat() if date_val else None,
+            "start_time": slot.start_time.strftime("%H:%M") if slot.start_time else None,
+            "end_time": slot.end_time.strftime("%H:%M") if slot.end_time else None,
+            "room": room_val,
+            "session_time": obj.council.get_session_time_display() if obj.council else "",
+        }
+
+    def get_council_members(self, obj):
+        if not obj.council:
+            return []
+        role_priority = {"CHAIR": 1, "SECRETARY": 2, "MEMBER": 3, "EXTERNAL_MEMBER": 4}
+        members = obj.council.members.all().select_related("user", "supervisor")
+        sorted_members = sorted(members, key=lambda m: role_priority.get(m.role, 5))
+        res = []
+        for m in sorted_members:
+            title = getattr(m.supervisor, "academic_title", "") if m.supervisor else ""
+            full_name = m.user.get_full_name() or m.user.username
+            display_name = f"{title} {full_name}".strip() if title else full_name
+            dept = getattr(m.supervisor, "department", "") if m.supervisor else (m.external_institution or "")
+            res.append({
+                "id": m.id,
+                "role": m.role,
+                "role_display": m.get_role_display(),
+                "name": full_name,
+                "display_name": display_name,
+                "academic_title": title,
+                "email": m.user.email,
+                "department": dept,
+                "external_institution": m.external_institution or "",
+            })
+        return res
 
 
 class ProposedAllocationSerializer(serializers.ModelSerializer):

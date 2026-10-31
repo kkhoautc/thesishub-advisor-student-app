@@ -143,6 +143,37 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             except Exception:
                 weekly_reports = []
 
+            slot = getattr(proj, "schedule_slot", None)
+            schedule_slot_data = None
+            if slot:
+                date_val = slot.slot_date or (proj.council.session_date if proj.council else None)
+                schedule_slot_data = {
+                    "id": slot.id,
+                    "order_number": slot.order_number,
+                    "slot_date": date_val.isoformat() if date_val else None,
+                    "start_time": slot.start_time.strftime("%H:%M") if slot.start_time else None,
+                    "end_time": slot.end_time.strftime("%H:%M") if slot.end_time else None,
+                    "room": slot.room or (proj.council.defense_room if proj.council else ""),
+                    "session_time": proj.council.get_session_time_display() if proj.council else "",
+                }
+
+            council_members_data = []
+            if proj.council:
+                role_priority = {"CHAIR": 1, "SECRETARY": 2, "MEMBER": 3, "EXTERNAL_MEMBER": 4}
+                for m in sorted(proj.council.members.all().select_related("user", "supervisor"), key=lambda x: role_priority.get(x.role, 5)):
+                    title = getattr(m.supervisor, "academic_title", "") if m.supervisor else ""
+                    fn = m.user.get_full_name() or m.user.username
+                    council_members_data.append({
+                        "id": m.id,
+                        "role": m.role,
+                        "role_display": m.get_role_display(),
+                        "name": fn,
+                        "display_name": f"{title} {fn}".strip() if title else fn,
+                        "academic_title": title,
+                        "email": m.user.email,
+                        "department": getattr(m.supervisor, "department", "") if m.supervisor else (m.external_institution or ""),
+                    })
+
             return {
                 "id": proj.id,
                 "topic_title_vi": proj.topic_title_vi,
@@ -162,6 +193,13 @@ class StudentProfileSerializer(serializers.ModelSerializer):
                 "supervisor_feedback": proj.supervisor_feedback,
                 "supervisor_defense_confirmed": proj.supervisor_defense_confirmed,
                 "reviewer_score": proj.reviewer_score,
+                "reviewer_name": (proj.reviewer.user.get_full_name() or proj.reviewer.user.username) if (proj.reviewer and proj.reviewer.user) else None,
+                "council_name": proj.council.council_name if proj.council else "",
+                "defense_room": slot.room if (slot and slot.room) else (proj.council.defense_room if proj.council else ""),
+                "session_date": slot.slot_date.isoformat() if (slot and slot.slot_date) else (proj.council.session_date.isoformat() if (proj.council and proj.council.session_date) else None),
+                "session_time": proj.council.get_session_time_display() if proj.council else "",
+                "schedule_slot": schedule_slot_data,
+                "council_members": council_members_data,
                 "is_eligible_for_defense": getattr(proj, "is_eligible_for_defense", False),
                 "outline_review": (
                     {

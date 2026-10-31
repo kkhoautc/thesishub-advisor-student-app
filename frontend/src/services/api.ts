@@ -1254,12 +1254,49 @@ class ApiService {
     return response.data;
   }
 
-  async submitTopicDraft(data: { project_id: number; topic_title_vi: string; topic_title_en?: string }): Promise<any> {
+  async submitTopicDraft(data: { project_id: number; topic_title_vi: string; topic_title_en?: string; topic_objective?: string }): Promise<any> {
     const response = await this.api.post('/graduation-project/topic-draft/', data);
     return response.data;
   }
 
-  async confirmTopicBySupervisor(data: { project_id: number; topic_title_vi?: string; topic_title_en?: string }): Promise<any> {
+  async submitOutlineTemplate(data: {
+    topic_title_vi?: string;
+    topic_title_en?: string;
+    topic_objective?: string;
+    objectives?: string;
+    scope?: string;
+    work_plan?: string;
+    deliverables?: string;
+    action?: 'draft' | 'submit';
+    outline_file?: File;
+  }): Promise<any> {
+    if (data.outline_file) {
+      const formData = new FormData();
+      Object.entries(data).forEach(([key, val]) => {
+        if (val !== undefined && val !== null) {
+          formData.append(key, val as any);
+        }
+      });
+      const response = await this.api.post('/student/outline/submit/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    const response = await this.api.post('/student/outline/submit/', data);
+    return response.data;
+  }
+
+  async getSupervisorOutlineReviews(): Promise<any[]> {
+    const response = await this.api.get('/supervisor/outline-group-reviews/');
+    return response.data;
+  }
+
+  async supervisorReviewOutline(data: { project_id: number; verdict: 'APPROVED' | 'REVISION_REQUIRED' | 'REJECTED'; comments?: string }): Promise<any> {
+    const response = await this.api.post('/supervisor/outline/review/', data);
+    return response.data;
+  }
+
+  async confirmTopicBySupervisor(data: { project_id: number; topic_title_vi?: string; topic_title_en?: string; decision?: string; notes?: string }): Promise<any> {
     const response = await this.api.post('/graduation-project/confirm-topic/', data);
     return response.data;
   }
