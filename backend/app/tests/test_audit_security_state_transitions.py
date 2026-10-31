@@ -182,4 +182,6 @@ class AuditSecurityAndStateTransitionsTests(APITestCase):
         })
         self.assertEqual(res_eval.status_code, status.HTTP_200_OK)
         self.proj_a.refresh_from_db()
-        self.assertEqual(self.proj_a.status, "DEFENSE_READY")
+        self.assertEqual(self.proj_a.status, "IN_PROGRESS")
+        self.assertTrue(self.proj_a.supervisor_defense_confirmed)
+        self.assertEqual(self.proj_a.supervisor_score, 8.5)

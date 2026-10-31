@@ -400,7 +400,7 @@ class FlowchartEndToEndTests(APITestCase):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(["MSSV", "CPA", "Tín chỉ tích lũy", "Nợ tín chỉ"])
-        ws.append(["201209001", 3.2, 138, 2])
+        ws.append(["201209001", 3.2, 138, 0])
         ws.append(["201209002", 2.1, 120, 12])
         bio = io.BytesIO()
         wb.save(bio)
@@ -410,7 +410,7 @@ class FlowchartEndToEndTests(APITestCase):
 
         # SV1 đủ điều kiện
         p1.refresh_from_db()
-        self.assertEqual(p1.final_academic_eligibility, "CLEARED")
+        self.assertEqual(p1.academic_clearance_status, "CLEARED")
 
         # 2. SV2 nợ 12 tín -> Bị Khoa Force Approve đặc cách
         res_force = self.client.post(f"/app/graduation-project/{p2.id}/force-approve/", {
